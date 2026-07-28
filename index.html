@@ -154,7 +154,7 @@
   .esito.errore{background:var(--rosso)}
   .esito .segno{font-size:78px;line-height:1}
   .esito h3{font-size:28px;margin:0}
-  .esito p{margin:0;font-size:18px;opacity:.92;max-width:460px}
+  .esito p{margin:0;font-size:18px;opacity:.92;max-width:520px;white-space:pre-line}
   .esito button{margin-top:10px;background:#fff;color:var(--verde-scuro);min-height:var(--tocco);padding:0 34px;border-radius:14px;font-size:19px;font-weight:800}
 
   /* ---------- Impostazioni ---------- */
@@ -183,6 +183,7 @@
 <main>
   <!-- SCHERMATA PRINCIPALE -->
   <section id="vistaPrincipale">
+    <div class="avviso nascosto" id="bannerServizio"></div>
     <div class="blocco">
       <div class="riga-testata">
         <div>
@@ -432,15 +433,30 @@ async function scaricaConfig(opz){
     ls.set(K.config, j.config);
     applicaConfig(j.config);
     riempiSelectImpianti(j.config.impianti);
+    banner('');
     if (!opz.silenzioso) esitoImpostazioni('Collegamento riuscito: ' +
       j.config.prodotti.length + ' prodotti, ' + j.config.lotti.length + ' trincee aperte.', true);
   }catch(err){
     const cache = ls.get(K.config,null);
-    if (cache) { applicaConfig(cache); $('#hSotto').textContent = 'anagrafica non aggiornata (offline)'; }
+    if (cache) {
+      applicaConfig(cache);
+      $('#hSotto').textContent = 'servizio non raggiungibile';
+      banner('⚠ Non riesco a contattare il servizio: quello che vedi qui sotto è l\'ultimo elenco scaricato e potrebbe non essere aggiornato. ' +
+             (navigator.onLine
+               ? 'La connessione c\'è, quindi il problema è nell\'indirizzo configurato o nella distribuzione Apps Script. Gli invii resteranno in coda.'
+               : 'Sei senza linea: appena torna il segnale si risistema da solo.'));
+    }
     else { $('#hSotto').textContent = 'impossibile contattare il servizio'; }
     if (!opz.silenzioso) esitoImpostazioni('Non riesco a contattare il servizio. Controlla che l\'URL finisca con /exec e che la distribuzione sia impostata su "Chiunque". Dettaglio: ' + err.message, false);
   }
   mostraStatoTecnico();
+}
+
+function banner(testo){
+  const n = $('#bannerServizio');
+  if (!n) return;
+  n.textContent = testo || '';
+  n.classList.toggle('nascosto', !testo);
 }
 
 function applicaConfig(cfg){
@@ -717,14 +733,26 @@ async function invia(){
   const payload = componiRapportino();
   try{
     const esito = await spedisci(payload);
-    if (!esito.ok) throw new Error(esito.errore || 'errore dal servizio');
-    mostraEsito(true, 'Rapportino registrato',
-      esito.righe + (esito.righe===1?' voce':' voci') + ' per un totale di ' + fmt(esito.totale) + ' t.');
-    resetRapportino();
+    if (esito && esito.ok){
+      mostraEsito(true, 'Rapportino registrato',
+        esito.righe + (esito.righe===1?' voce':' voci') + ' per un totale di ' + fmt(esito.totale) + ' t.');
+      resetRapportino();
+    } else {
+      // Il servizio ha risposto ma ha rifiutato: rimetterlo in coda non
+      // servirebbe a niente, verrebbe rifiutato all'infinito.
+      mostraEsito(false, 'Rapportino rifiutato dal servizio',
+        (esito && esito.errore ? esito.errore : 'risposta non riconosciuta') +
+        '\n\nIl rapportino è ancora sullo schermo: non l\'ho perso.');
+    }
   }catch(err){
     accodaRapportino(payload);
-    mostraEsito(true, 'Salvato sul tablet',
-      'Non sono riuscito a contattare il servizio, quindi il rapportino è in coda e verrà inviato da solo appena torna la linea. Non ricompilarlo.');
+    if (navigator.onLine){
+      mostraEsito(false, 'Servizio non raggiungibile',
+        'Il collegamento a internet c\'è, ma il servizio non risponde: quasi sempre è l\'indirizzo configurato che non è più valido, oppure la distribuzione Apps Script non è impostata su "Chiunque". Il rapportino è comunque salvato qui e riparte da solo quando il servizio torna: non ricompilarlo. Controlla lo Stato nell\'ingranaggio in alto a destra.');
+    } else {
+      mostraEsito(true, 'Salvato sul tablet',
+        'Sei senza linea, quindi il rapportino è in coda e verrà inviato da solo appena torna il segnale. Non ricompilarlo.');
+    }
     resetRapportino();
   }finally{
     btn.textContent = 'Invia';
