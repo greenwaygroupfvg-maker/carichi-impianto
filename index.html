@@ -36,7 +36,7 @@
     padding:10px 14px;display:flex;align-items:center;gap:12px;
     padding-top:calc(10px + env(safe-area-inset-top));
   }
-  header .titolo{flex:1;min-width:0}
+  header .titolo{flex:1;min-width:0;-webkit-user-select:none;user-select:none;cursor:default}
   header .titolo b{display:block;font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   header .titolo span{font-size:13px;opacity:.75}
   .pill{
@@ -177,7 +177,7 @@
     <span id="hSotto">caricamento…</span>
   </div>
   <div class="pill nascosto" id="hCoda">0 in attesa</div>
-  <button class="icona" id="btnImpostazioni" title="Impostazioni">⚙</button>
+  <button class="icona nascosto" id="btnImpostazioni" title="Impostazioni">⚙</button>
 </header>
 
 <main>
@@ -208,7 +208,8 @@
   <section id="vistaImpostazioni" class="nascosto">
     <div class="blocco">
       <h2 style="margin-top:0;font-size:21px">Impostazioni tablet</h2>
-      <div class="avviso">Da compilare una sola volta per tablet, al momento dell'installazione.</div>
+      <div class="avviso">Da compilare una sola volta per tablet, al momento dell'installazione.<br><br>
+        <b>Come si riapre questa schermata:</b> tieni premuto due secondi sul nome dell'impianto, in alto a sinistra. L'ingranaggio resta nascosto agli operatori.</div>
 
       <div class="campo">
         <label for="inApi">Indirizzo del servizio (URL Apps Script)</label>
@@ -302,6 +303,7 @@ const TURNI = ['Mattina','Pomeriggio'];
 
 let CONFIG = null;          // { impianti, operatori, prodotti, lotti }
 let DEMO = false;
+let SBLOCCATO = false;      // impostazioni rese visibili con la pressione lunga
 const voci = new Map();     // chiave -> { tipo, id, prodotto_id, nome, sotto, um, qta }
 let tastierino = null;      // { chiave, valore, esistente }
 
@@ -364,6 +366,7 @@ function avvia(){
   if (q.get('api'))      ls.set(K.api, q.get('api'));
   if (q.get('impianto')) ls.set(K.impianto, q.get('impianto'));
   if (q.get('device'))   ls.set(K.device, q.get('device'));
+  if (q.get('impostazioni') === '1') SBLOCCATO = true;
 
   const api = apiUrl();
   const cache = ls.get(K.config, null);
@@ -376,6 +379,7 @@ function avvia(){
     scaricaConfig({silenzioso: !!cache});
   }
 
+  aggiornaAccessoImpostazioni();
   aggiornaCoda();
   setInterval(svuotaCoda, 60000);
   window.addEventListener('online', svuotaCoda);
@@ -386,7 +390,33 @@ function avvia(){
   }
 }
 
+/* L'ingranaggio resta nascosto quando il tablet e' gia' configurato: agli
+   operatori non serve e da' solo modo di rompere qualcosa senza volerlo.
+   Si riapre tenendo premuto due secondi sul nome dell'impianto, oppure
+   aggiungendo ?impostazioni=1 all'indirizzo. */
+function aggiornaAccessoImpostazioni(){
+  const configurato = !!apiUrl() && !!ls.get(K.impianto,'');
+  $('#btnImpostazioni').classList.toggle('nascosto', configurato && !SBLOCCATO);
+}
+
+function sbloccaImpostazioni(){
+  SBLOCCATO = true;
+  aggiornaAccessoImpostazioni();
+  apriImpostazioni();
+}
+
+function collegaPressioneLunga(){
+  const zona = document.querySelector('header .titolo');
+  let timer = null;
+  const avvia = () => { annulla(); timer = setTimeout(sbloccaImpostazioni, 2000); };
+  const annulla = () => { if (timer) { clearTimeout(timer); timer = null; } };
+  ['pointerdown'].forEach(ev => zona.addEventListener(ev, avvia));
+  ['pointerup','pointerleave','pointercancel'].forEach(ev => zona.addEventListener(ev, annulla));
+  zona.addEventListener('contextmenu', e => e.preventDefault());
+}
+
 function collegaEventi(){
+  collegaPressioneLunga();
   $('#btnImpostazioni').addEventListener('click', apriImpostazioni);
   $('#btnChiudiImpostazioni').addEventListener('click', chiudiImpostazioni);
   $('#btnSalvaImpostazioni').addEventListener('click', salvaImpostazioni);
@@ -465,6 +495,7 @@ function applicaConfig(cfg){
   const imp = (cfg.impianti||[]).find(i => i.id === impId) || (cfg.impianti||[])[0];
   $('#hImpianto').textContent = imp ? imp.nome : 'Rapportino Carichi';
   $('#hSotto').textContent = DEMO ? 'modalità dimostrativa' : 'rapportino di carico';
+  aggiornaAccessoImpostazioni();
   disegnaTurni();
   disegnaOperatori();
   disegnaVoci();
@@ -831,6 +862,8 @@ function chiudiImpostazioni(){
   $('#vistaImpostazioni').classList.add('nascosto');
   $('#vistaPrincipale').classList.remove('nascosto');
   $('#barra').classList.remove('nascosto');
+  SBLOCCATO = false;                 // richiudo l'accesso appena si esce
+  aggiornaAccessoImpostazioni();
 }
 
 async function salvaImpostazioni(){
