@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#1f3d2b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Rapportino Carichi</title>
+<style>
+  :root{
+    --verde:#2e7d4f; --verde-scuro:#1f3d2b; --verde-chiaro:#e8f3ec;
+    --sfondo:#f2f4f2; --carta:#ffffff; --bordo:#d6dcd7;
+    --testo:#1b2620; --testo-soft:#5d6b63;
+    --ambra:#b8860b; --rosso:#b3261e;
+    --tocco:64px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    background:var(--sfondo); color:var(--testo);
+    font-size:17px; line-height:1.4;
+    overscroll-behavior-y:contain;
+  }
+  button{font-family:inherit;font-size:inherit;cursor:pointer;border:none;background:none;color:inherit}
+  .nascosto{display:none !important}
+
+  /* ---------- Header ---------- */
+  header{
+    position:sticky;top:0;z-index:30;
+    background:var(--verde-scuro);color:#fff;
+    padding:10px 14px;display:flex;align-items:center;gap:12px;
+    padding-top:calc(10px + env(safe-area-inset-top));
+  }
+  header .titolo{flex:1;min-width:0}
+  header .titolo b{display:block;font-size:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  header .titolo span{font-size:13px;opacity:.75}
+  .pill{
+    font-size:13px;padding:5px 11px;border-radius:999px;
+    background:rgba(255,255,255,.16);white-space:nowrap
+  }
+  .pill.warn{background:var(--ambra);color:#fff}
+  .icona{
+    width:44px;height:44px;border-radius:10px;background:rgba(255,255,255,.12);
+    display:flex;align-items:center;justify-content:center;font-size:22px;flex:none
+  }
+
+  main{padding:14px 14px 130px;max-width:1000px;margin:0 auto}
+
+  /* ---------- Testata rapportino ---------- */
+  .blocco{background:var(--carta);border:1px solid var(--bordo);border-radius:14px;padding:14px;margin-bottom:16px}
+  .etichetta{font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--testo-soft);margin:0 0 8px}
+  .riga-testata{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:560px){.riga-testata{grid-template-columns:1fr}}
+  input[type=date]{
+    width:100%;height:var(--tocco);border:2px solid var(--bordo);border-radius:12px;
+    padding:0 12px;font-size:19px;background:#fff;color:var(--testo)
+  }
+  .scelte{display:flex;flex-wrap:wrap;gap:10px}
+  .scelta{
+    min-height:var(--tocco);padding:0 20px;border-radius:12px;border:2px solid var(--bordo);
+    background:#fff;font-size:18px;font-weight:600;display:flex;align-items:center
+  }
+  .scelta[aria-pressed=true]{background:var(--verde);border-color:var(--verde);color:#fff}
+
+  /* ---------- Griglia prodotti ---------- */
+  h2.sezione{
+    font-size:15px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--testo-soft);margin:22px 4px 10px;display:flex;align-items:center;gap:8px
+  }
+  h2.sezione::after{content:"";flex:1;height:1px;background:var(--bordo)}
+  .griglia{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+  .card{
+    background:var(--carta);border:2px solid var(--bordo);border-radius:14px;
+    padding:14px;min-height:104px;text-align:left;
+    display:flex;flex-direction:column;justify-content:space-between;gap:8px;
+    transition:border-color .12s, background .12s;
+  }
+  .card:active{transform:scale(.985)}
+  .card .nome{font-size:18px;font-weight:700;line-height:1.25}
+  .card .sotto{font-size:14px;color:var(--testo-soft)}
+  .card .valore{font-size:15px;color:var(--testo-soft);font-weight:600}
+  .card.piena{border-color:var(--verde);background:var(--verde-chiaro)}
+  .card.piena .valore{color:var(--verde-scuro);font-size:26px;font-weight:800}
+  .card .badge{
+    display:inline-block;font-size:12px;font-weight:800;letter-spacing:.05em;
+    background:var(--verde-scuro);color:#fff;border-radius:6px;padding:3px 8px;margin-bottom:6px
+  }
+
+  /* ---------- Barra invio ---------- */
+  .barra{
+    position:fixed;left:0;right:0;bottom:0;z-index:25;
+    background:var(--carta);border-top:1px solid var(--bordo);
+    padding:12px 14px calc(12px + env(safe-area-inset-bottom));
+    display:flex;align-items:center;gap:14px;
+    box-shadow:0 -6px 20px rgba(0,0,0,.07)
+  }
+  .barra .riepilogo{flex:1;min-width:0}
+  .barra .riepilogo b{display:block;font-size:22px}
+  .barra .riepilogo span{font-size:14px;color:var(--testo-soft)}
+  .btn-primario{
+    min-height:var(--tocco);padding:0 30px;border-radius:14px;background:var(--verde);color:#fff;
+    font-size:20px;font-weight:800;letter-spacing:.02em
+  }
+  .btn-primario:disabled{background:#c3cbc6;color:#fff}
+  .btn-secondario{
+    min-height:52px;padding:0 22px;border-radius:12px;border:2px solid var(--bordo);
+    background:#fff;font-size:17px;font-weight:600
+  }
+
+  /* ---------- Modale tastierino ---------- */
+  .velo{
+    position:fixed;inset:0;z-index:60;background:rgba(15,25,20,.55);
+    display:flex;align-items:flex-end;justify-content:center;padding:0
+  }
+  @media(min-width:640px){.velo{align-items:center;padding:20px}}
+  .pannello{
+    background:var(--carta);width:100%;max-width:460px;
+    border-radius:20px 20px 0 0;padding:18px 18px calc(18px + env(safe-area-inset-bottom));
+  }
+  @media(min-width:640px){.pannello{border-radius:20px}}
+  .pannello .capo{font-size:20px;font-weight:800;margin-bottom:2px}
+  .pannello .capo-sotto{font-size:15px;color:var(--testo-soft);margin-bottom:14px}
+  .display{
+    background:var(--verde-chiaro);border:2px solid var(--verde);border-radius:14px;
+    padding:14px 18px;text-align:right;margin-bottom:14px;
+    font-size:44px;font-weight:800;font-variant-numeric:tabular-nums;min-height:78px;
+    display:flex;align-items:center;justify-content:flex-end;gap:8px
+  }
+  .display small{font-size:20px;font-weight:600;color:var(--testo-soft)}
+  .rapidi{display:flex;gap:8px;margin-bottom:12px}
+  .rapidi button{flex:1;height:48px;border-radius:11px;background:#eef1ef;font-weight:700;font-size:16px}
+  .tasti{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .tasti button{
+    height:66px;border-radius:13px;background:#eef1ef;font-size:28px;font-weight:700;
+    display:flex;align-items:center;justify-content:center
+  }
+  .tasti button.azione{background:#e2e7e4;font-size:22px}
+  .pannello .fondo{display:flex;gap:10px;margin-top:14px}
+  .pannello .fondo button{flex:1;min-height:var(--tocco);border-radius:13px;font-size:19px;font-weight:800}
+  .btn-ok{background:var(--verde);color:#fff}
+  .btn-annulla{background:#eef1ef}
+  .btn-rimuovi{background:#fdeceb;color:var(--rosso);flex:0 0 auto !important;padding:0 20px}
+
+  /* ---------- Conferma / esito ---------- */
+  .esito{
+    position:fixed;inset:0;z-index:70;background:var(--verde);color:#fff;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:30px;text-align:center
+  }
+  .esito.errore{background:var(--rosso)}
+  .esito .segno{font-size:78px;line-height:1}
+  .esito h3{font-size:28px;margin:0}
+  .esito p{margin:0;font-size:18px;opacity:.92;max-width:460px}
+  .esito button{margin-top:10px;background:#fff;color:var(--verde-scuro);min-height:var(--tocco);padding:0 34px;border-radius:14px;font-size:19px;font-weight:800}
+
+  /* ---------- Impostazioni ---------- */
+  .campo{margin-bottom:16px}
+  .campo label{display:block;font-size:14px;font-weight:700;margin-bottom:6px}
+  .campo input,.campo select{
+    width:100%;min-height:54px;border:2px solid var(--bordo);border-radius:12px;
+    padding:0 12px;font-size:17px;background:#fff;color:var(--testo)
+  }
+  .campo .aiuto{font-size:13px;color:var(--testo-soft);margin-top:6px}
+  .avviso{background:#fff8e6;border:1px solid #e6cf8a;border-radius:12px;padding:12px 14px;font-size:15px;margin-bottom:16px}
+  .vuoto{text-align:center;color:var(--testo-soft);padding:40px 20px;font-size:17px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="titolo">
+    <b id="hImpianto">Rapportino Carichi</b>
+    <span id="hSotto">caricamento…</span>
+  </div>
+  <div class="pill nascosto" id="hCoda">0 in attesa</div>
+  <button class="icona" id="btnImpostazioni" title="Impostazioni">⚙</button>
+</header>
+
+<main>
+  <!-- SCHERMATA PRINCIPALE -->
+  <section id="vistaPrincipale">
+    <div class="blocco">
+      <div class="riga-testata">
+        <div>
+          <p class="etichetta">Data</p>
+          <input type="date" id="inData">
+        </div>
+        <div>
+          <p class="etichetta">Turno</p>
+          <div class="scelte" id="scelteTurno"></div>
+        </div>
+      </div>
+      <div style="margin-top:14px">
+        <p class="etichetta">Operatore</p>
+        <div class="scelte" id="scelteOperatore"></div>
+      </div>
+    </div>
+
+    <div id="contenitoreVoci"></div>
+  </section>
+
+  <!-- SCHERMATA IMPOSTAZIONI -->
+  <section id="vistaImpostazioni" class="nascosto">
+    <div class="blocco">
+      <h2 style="margin-top:0;font-size:21px">Impostazioni tablet</h2>
+      <div class="avviso">Da compilare una sola volta per tablet, al momento dell'installazione.</div>
+
+      <div class="campo">
+        <label for="inApi">Indirizzo del servizio (URL Apps Script)</label>
+        <input id="inApi" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" spellcheck="false">
+        <div class="aiuto">Lo trovi in Apps Script → Distribuisci → Gestisci distribuzioni. Deve finire con <b>/exec</b>.</div>
+      </div>
+
+      <div class="campo">
+        <label for="inImpianto">Impianto di questo tablet</label>
+        <select id="inImpianto"><option value="">— prima salva l'indirizzo —</option></select>
+        <div class="aiuto">L'operatore vedrà soltanto prodotti e trincee di questo impianto.</div>
+      </div>
+
+      <div class="campo">
+        <label for="inDevice">Nome del tablet (facoltativo)</label>
+        <input id="inDevice" type="text" placeholder="es. Tablet piazzale" autocomplete="off">
+        <div class="aiuto">Finisce nei dati: utile per capire da dove arriva un rapportino.</div>
+      </div>
+
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn-primario" id="btnSalvaImpostazioni">Salva e verifica</button>
+        <button class="btn-secondario" id="btnRicarica">Aggiorna anagrafica</button>
+        <button class="btn-secondario" id="btnDemo">Prova con dati demo</button>
+      </div>
+      <div id="esitoImpostazioni" style="margin-top:14px;font-size:16px"></div>
+    </div>
+
+    <div class="blocco">
+      <p class="etichetta">Stato</p>
+      <div id="statoTecnico" style="font-size:15px;color:var(--testo-soft);line-height:1.7"></div>
+      <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn-secondario" id="btnSvuotaCoda">Svuota coda di invio</button>
+        <button class="btn-secondario" id="btnChiudiImpostazioni">Torna al rapportino</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- BARRA INVIO -->
+<div class="barra" id="barra">
+  <div class="riepilogo">
+    <b id="barraTotale">0 t</b>
+    <span id="barraDettaglio">nessuna voce inserita</span>
+  </div>
+  <button class="btn-primario" id="btnInvia" disabled>Invia</button>
+</div>
+
+<!-- TASTIERINO -->
+<div class="velo nascosto" id="veloTastierino">
+  <div class="pannello">
+    <div class="capo" id="tsTitolo">—</div>
+    <div class="capo-sotto" id="tsSottotitolo"></div>
+    <div class="display"><span id="tsValore">0</span><small id="tsUm">t</small></div>
+    <div id="tsAvviso" class="nascosto" style="background:#fff8e6;border:1px solid #e6cf8a;border-radius:10px;padding:9px 12px;font-size:14px;margin-bottom:12px">Quantità insolita per questo prodotto: controlla prima di confermare.</div>
+    <div class="rapidi" id="tsRapidi"></div>
+    <div class="tasti" id="tsTasti"></div>
+    <div class="fondo">
+      <button class="btn-annulla" id="tsAnnulla">Annulla</button>
+      <button class="btn-rimuovi nascosto" id="tsRimuovi">Togli</button>
+      <button class="btn-ok" id="tsOk">Conferma</button>
+    </div>
+  </div>
+</div>
+
+<!-- ESITO -->
+<div class="esito nascosto" id="velaEsito">
+  <div class="segno" id="esitoSegno">✓</div>
+  <h3 id="esitoTitolo">Rapportino inviato</h3>
+  <p id="esitoTesto"></p>
+  <button id="esitoChiudi">Nuovo rapportino</button>
+</div>
+
+<script src="config.js" onerror="window.RC_CONFIG=window.RC_CONFIG||{}"></script>
+<script>
+"use strict";
+
+/* ============================================================
+   Stato e persistenza locale
+   ============================================================ */
+const K = {
+  api:'rc.api', impianto:'rc.impianto', device:'rc.device',
+  config:'rc.config', coda:'rc.coda', operatore:'rc.operatore', turno:'rc.turno'
+};
+const ls = {
+  get(k, def){ try{ const v = localStorage.getItem(k); return v===null ? def : JSON.parse(v); }catch(e){ return def; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} },
+  del(k){ try{ localStorage.removeItem(k); }catch(e){} }
+};
+
+const TURNI = ['Mattina','Pomeriggio'];
+
+let CONFIG = null;          // { impianti, operatori, prodotti, lotti }
+let DEMO = false;
+const voci = new Map();     // chiave -> { tipo, id, prodotto_id, nome, sotto, um, qta }
+let tastierino = null;      // { chiave, valore, esistente }
+
+/* Anagrafica demo, per vedere l'app funzionare senza backend */
+const CONFIG_DEMO = {
+  impianti:[{id:'IMP1',nome:'Impianto dimostrativo'}],
+  operatori:[{id:'OP1',nome:'Mario'},{id:'OP2',nome:'Luca'},{id:'OP3',nome:'Giuseppe'}],
+  prodotti:[
+    {id:'INS-MAIS',nome:'Insilato di mais',categoria:'Insilati',um:'t',ha_lotto:true,ordine:10},
+    {id:'INS-TRIT',nome:'Insilato di triticale',categoria:'Insilati',um:'t',ha_lotto:true,ordine:20},
+    {id:'LIQ-BOV',nome:'Liquame bovino',categoria:'Effluenti',um:'t',ha_lotto:false,ordine:110},
+    {id:'LET-BOV',nome:'Letame bovino',categoria:'Effluenti',um:'t',ha_lotto:false,ordine:130},
+    {id:'POLLINA',nome:'Pollina',categoria:'Effluenti',um:'t',ha_lotto:false,ordine:140},
+    {id:'SIERO',nome:'Siero di latte',categoria:'Sottoprodotti',um:'t',ha_lotto:false,ordine:210},
+    {id:'POLPE-BIET',nome:'Polpe di bietola',categoria:'Sottoprodotti',um:'t',ha_lotto:false,ordine:220},
+    {id:'FAR-CER',nome:'Farina di cereale',categoria:'Sottoprodotti',um:'t',ha_lotto:false,ordine:250}
+  ],
+  lotti:[
+    {id:'L-001',prodotto_id:'INS-MAIS',prodotto:'Insilato di mais',categoria:'Insilati',um:'t',trincea:'Trincea 1',anno:'2025',qta_max_attesa:60},
+    {id:'L-002',prodotto_id:'INS-TRIT',prodotto:'Insilato di triticale',categoria:'Insilati',um:'t',trincea:'Trincea 2',anno:'2026',qta_max_attesa:60},
+    {id:'L-006',prodotto_id:'INS-MAIS',prodotto:'Insilato di mais',categoria:'Insilati',um:'t',trincea:'Trincea 5',anno:'2026',qta_max_attesa:60}
+  ]
+};
+
+/* ============================================================
+   Utility
+   ============================================================ */
+const $ = s => document.querySelector(s);
+const el = (tag, cls, txt) => { const n=document.createElement(tag); if(cls) n.className=cls; if(txt!=null) n.textContent=txt; return n; };
+
+function uuid(){
+  if (crypto && crypto.randomUUID) return crypto.randomUUID();
+  return 'r-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,10);
+}
+function oggi(){
+  const d = new Date(), p = n => String(n).padStart(2,'0');
+  return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate());
+}
+function fmt(n){
+  const v = Math.round(Number(n)*100)/100;
+  return v.toLocaleString('it-IT',{minimumFractionDigits:0, maximumFractionDigits:2});
+}
+function turnoSuggerito(){
+  return new Date().getHours() < 13 ? 'Mattina' : 'Pomeriggio';
+}
+
+/* ============================================================
+   Avvio
+   ============================================================ */
+document.addEventListener('DOMContentLoaded', avvia);
+
+function avvia(){
+  $('#inData').value = oggi();
+  costruisciTastierino();
+  collegaEventi();
+
+  // Provisioning da URL: ?impianto=IMP1  (ed eventualmente &api=…&device=…)
+  // E' cosi' che ogni impianto ha il suo link: stessa app, impianto diverso.
+  const q = new URLSearchParams(location.search);
+  if (q.get('api'))      ls.set(K.api, q.get('api'));
+  if (q.get('impianto')) ls.set(K.impianto, q.get('impianto'));
+  if (q.get('device'))   ls.set(K.device, q.get('device'));
+
+  const api = apiUrl();
+  const cache = ls.get(K.config, null);
+  if (cache) { applicaConfig(cache); }
+
+  if (!api) {
+    apriImpostazioni();
+    $('#hSotto').textContent = 'da configurare';
+  } else {
+    scaricaConfig({silenzioso: !!cache});
+  }
+
+  aggiornaCoda();
+  setInterval(svuotaCoda, 60000);
+  window.addEventListener('online', svuotaCoda);
+  svuotaCoda();
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  }
+}
+
+function collegaEventi(){
+  $('#btnImpostazioni').addEventListener('click', apriImpostazioni);
+  $('#btnChiudiImpostazioni').addEventListener('click', chiudiImpostazioni);
+  $('#btnSalvaImpostazioni').addEventListener('click', salvaImpostazioni);
+  $('#btnRicarica').addEventListener('click', ()=>scaricaConfig({}));
+  $('#btnDemo').addEventListener('click', avviaDemo);
+  $('#btnSvuotaCoda').addEventListener('click', ()=>{ ls.set(K.coda,[]); aggiornaCoda(); mostraStatoTecnico(); });
+  $('#btnInvia').addEventListener('click', invia);
+  $('#tsAnnulla').addEventListener('click', chiudiTastierino);
+  $('#tsOk').addEventListener('click', confermaTastierino);
+  $('#tsRimuovi').addEventListener('click', rimuoviVoce);
+  $('#esitoChiudi').addEventListener('click', ()=>{ $('#velaEsito').classList.add('nascosto'); });
+  $('#veloTastierino').addEventListener('click', e => { if (e.target.id === 'veloTastierino') chiudiTastierino(); });
+}
+
+/* ============================================================
+   Configurazione
+   ============================================================ */
+/* L'indirizzo del servizio puo' arrivare da config.js (uguale per tutti i
+   tablet, si configura una volta sola sul sito) oppure, in mancanza, dalle
+   impostazioni del singolo tablet. */
+function apiUrl(){
+  const c = (typeof window.RC_CONFIG === 'object' && window.RC_CONFIG) || {};
+  const daFile = String(c.api || '').trim();
+  if (daFile && daFile.indexOf('INCOLLA') === -1) return daFile;
+  return ls.get(K.api,'');
+}
+
+function urlConfig(){
+  const api = apiUrl(), imp = ls.get(K.impianto,'');
+  const sep = api.indexOf('?') === -1 ? '?' : '&';
+  return api + sep + 'action=config&impianto=' + encodeURIComponent(imp) + '&_=' + Date.now();
+}
+
+async function scaricaConfig(opz){
+  opz = opz || {};
+  const api = apiUrl();
+  if (!api) return;
+  if (!opz.silenzioso) $('#hSotto').textContent = 'aggiornamento anagrafica…';
+  try{
+    const r = await fetch(urlConfig(), { method:'GET', redirect:'follow' });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.errore || 'risposta non valida');
+    DEMO = false;
+    ls.set(K.config, j.config);
+    applicaConfig(j.config);
+    riempiSelectImpianti(j.config.impianti);
+    if (!opz.silenzioso) esitoImpostazioni('Collegamento riuscito: ' +
+      j.config.prodotti.length + ' prodotti, ' + j.config.lotti.length + ' trincee aperte.', true);
+  }catch(err){
+    const cache = ls.get(K.config,null);
+    if (cache) { applicaConfig(cache); $('#hSotto').textContent = 'anagrafica non aggiornata (offline)'; }
+    else { $('#hSotto').textContent = 'impossibile contattare il servizio'; }
+    if (!opz.silenzioso) esitoImpostazioni('Non riesco a contattare il servizio. Controlla che l\'URL finisca con /exec e che la distribuzione sia impostata su "Chiunque". Dettaglio: ' + err.message, false);
+  }
+  mostraStatoTecnico();
+}
+
+function applicaConfig(cfg){
+  CONFIG = cfg;
+  const impId = ls.get(K.impianto,'');
+  const imp = (cfg.impianti||[]).find(i => i.id === impId) || (cfg.impianti||[])[0];
+  $('#hImpianto').textContent = imp ? imp.nome : 'Rapportino Carichi';
+  $('#hSotto').textContent = DEMO ? 'modalità dimostrativa' : 'rapportino di carico';
+  disegnaTurni();
+  disegnaOperatori();
+  disegnaVoci();
+  aggiornaBarra();
+}
+
+function riempiSelectImpianti(impianti){
+  const sel = $('#inImpianto'), corrente = ls.get(K.impianto,'');
+  sel.innerHTML = '';
+  (impianti||[]).forEach(i => {
+    const o = document.createElement('option');
+    o.value = i.id; o.textContent = i.nome + '  (' + i.id + ')';
+    if (i.id === corrente) o.selected = true;
+    sel.appendChild(o);
+  });
+  if (!impianti || !impianti.length) sel.innerHTML = '<option value="">— nessun impianto trovato —</option>';
+}
+
+/* ============================================================
+   Disegno interfaccia
+   ============================================================ */
+function disegnaTurni(){
+  const box = $('#scelteTurno'); box.innerHTML = '';
+  const scelto = ls.get(K.turno,'') || turnoSuggerito();
+  TURNI.forEach(t => {
+    const b = el('button','scelta',t);
+    b.setAttribute('aria-pressed', String(t === scelto));
+    b.addEventListener('click', ()=>{ ls.set(K.turno,t); disegnaTurni(); aggiornaBarra(); });
+    box.appendChild(b);
+  });
+}
+
+function disegnaOperatori(){
+  const box = $('#scelteOperatore'); box.innerHTML = '';
+  const scelto = ls.get(K.operatore,'');
+  const lista = (CONFIG && CONFIG.operatori) || [];
+  if (!lista.length){ box.appendChild(el('div','vuoto','Nessun operatore in anagrafica.')); return; }
+  lista.forEach(o => {
+    const b = el('button','scelta',o.nome);
+    b.setAttribute('aria-pressed', String(o.nome === scelto));
+    b.addEventListener('click', ()=>{ ls.set(K.operatore,o.nome); disegnaOperatori(); aggiornaBarra(); });
+    box.appendChild(b);
+  });
+}
+
+function disegnaVoci(){
+  const box = $('#contenitoreVoci'); box.innerHTML = '';
+  if (!CONFIG){ box.appendChild(el('div','vuoto','Configura il servizio dalle impostazioni ⚙')); return; }
+
+  const lotti = CONFIG.lotti || [];
+  if (lotti.length){
+    box.appendChild(intestazioneSezione('Trincee aperte'));
+    const g = el('div','griglia');
+    lotti.forEach(l => g.appendChild(cardLotto(l)));
+    box.appendChild(g);
+  }
+
+  // prodotti senza lotto, raggruppati per categoria
+  const semplici = (CONFIG.prodotti || []).filter(p => !p.ha_lotto);
+  const categorie = [];
+  semplici.forEach(p => { if (categorie.indexOf(p.categoria) === -1) categorie.push(p.categoria); });
+  categorie.forEach(cat => {
+    box.appendChild(intestazioneSezione(cat));
+    const g = el('div','griglia');
+    semplici.filter(p => p.categoria === cat).forEach(p => g.appendChild(cardProdotto(p)));
+    box.appendChild(g);
+  });
+
+  if (!lotti.length && !semplici.length){
+    box.appendChild(el('div','vuoto','Nessun prodotto disponibile per questo impianto.'));
+  }
+}
+
+function intestazioneSezione(t){ return el('h2','sezione',t); }
+
+function cardLotto(l){
+  const chiave = 'L:' + l.id;
+  const b = el('button','card');
+  const testa = el('div');
+  testa.appendChild(el('span','badge', l.trincea));
+  const nome = el('div','nome', l.prodotto);
+  const sotto = el('div','sotto', 'raccolto ' + l.anno);
+  testa.appendChild(nome); testa.appendChild(sotto);
+  b.appendChild(testa);
+  b.appendChild(el('div','valore','—'));
+  b.addEventListener('click', ()=> apriTastierino(chiave, {
+    tipo:'LOTTO', id:l.id, prodotto_id:l.prodotto_id, um:l.um || 't',
+    nome:l.prodotto, sotto:l.trincea + ' · raccolto ' + l.anno,
+    max: Number(l.qta_max_attesa) || 0
+  }));
+  aggiornaCard(b, chiave);
+  return b;
+}
+
+function cardProdotto(p){
+  const chiave = 'P:' + p.id;
+  const b = el('button','card');
+  const testa = el('div');
+  testa.appendChild(el('div','nome', p.nome));
+  testa.appendChild(el('div','sotto', p.categoria));
+  b.appendChild(testa);
+  b.appendChild(el('div','valore','—'));
+  b.addEventListener('click', ()=> apriTastierino(chiave, {
+    tipo:'PRODOTTO', id:p.id, prodotto_id:p.id, um:p.um || 't', nome:p.nome, sotto:p.categoria,
+    max: Number(p.qta_max_attesa) || 0
+  }));
+  aggiornaCard(b, chiave);
+  return b;
+}
+
+function aggiornaCard(nodo, chiave){
+  const v = voci.get(chiave);
+  const val = nodo.querySelector('.valore');
+  if (v && v.qta > 0){
+    nodo.classList.add('piena');
+    val.textContent = fmt(v.qta) + ' ' + v.um;
+  } else {
+    nodo.classList.remove('piena');
+    val.textContent = 'tocca per inserire';
+  }
+}
+
+function aggiornaTutteLeCard(){
+  // ridisegno solo i valori, senza ricostruire il DOM
+  disegnaVoci();
+}
+
+/* ============================================================
+   Tastierino numerico
+   ============================================================ */
+function costruisciTastierino(){
+  const tasti = $('#tsTasti');
+  const layout = ['1','2','3','4','5','6','7','8','9',',','0','⌫'];
+  layout.forEach(t => {
+    const b = el('button', (t===',' || t==='⌫') ? 'azione' : '', t);
+    b.addEventListener('click', ()=> premiTasto(t));
+    tasti.appendChild(b);
+  });
+  const rapidi = $('#tsRapidi');
+  [1,5,10,20].forEach(n => {
+    const b = el('button','', '+' + n);
+    b.addEventListener('click', ()=> {
+      const attuale = parseFloat((tastierino.valore || '0').replace(',','.')) || 0;
+      tastierino.valore = String(Math.round((attuale + n)*100)/100).replace('.',',');
+      mostraValore();
+    });
+    rapidi.appendChild(b);
+  });
+}
+
+function apriTastierino(chiave, meta){
+  const esistente = voci.get(chiave);
+  tastierino = {
+    chiave,
+    meta,
+    valore: esistente ? String(esistente.qta).replace('.',',') : '',
+    esistente: !!esistente
+  };
+  $('#tsTitolo').textContent = meta.nome;
+  $('#tsSottotitolo').textContent = meta.sotto || '';
+  $('#tsUm').textContent = meta.um || 't';
+  $('#tsRimuovi').classList.toggle('nascosto', !esistente);
+  mostraValore();
+  $('#veloTastierino').classList.remove('nascosto');
+}
+
+function premiTasto(t){
+  if (!tastierino) return;
+  let v = tastierino.valore;
+  if (t === '⌫')      v = v.slice(0,-1);
+  else if (t === ','){ if (v.indexOf(',') === -1) v = (v === '' ? '0' : v) + ','; }
+  else {
+    if (v === '0') v = '';
+    const parti = v.split(',');
+    if (parti.length === 2 && parti[1].length >= 2) return;   // max 2 decimali
+    if (parti[0].length >= 5 && parti.length === 1) return;   // max 99999
+    v = v + t;
+  }
+  tastierino.valore = v;
+  mostraValore();
+}
+
+function mostraValore(){
+  const v = tastierino.valore;
+  $('#tsValore').textContent = v === '' ? '0' : v;
+  const n = parseFloat((v||'0').replace(',','.'));
+  $('#tsOk').disabled = !(n > 0);
+  $('#tsOk').style.opacity = (n > 0) ? '1' : '.45';
+  const max = (tastierino.meta && tastierino.meta.max) || 0;
+  $('#tsAvviso').classList.toggle('nascosto', !(max > 0 && n > max));
+}
+
+function confermaTastierino(){
+  if (!tastierino) return;
+  const n = parseFloat((tastierino.valore||'0').replace(',','.'));
+  if (!(n > 0)) return;
+  const m = tastierino.meta;
+  voci.set(tastierino.chiave, {
+    tipo:m.tipo, id:m.id, prodotto_id:m.prodotto_id, nome:m.nome, sotto:m.sotto, um:m.um, qta:n
+  });
+  chiudiTastierino();
+  aggiornaTutteLeCard();
+  aggiornaBarra();
+}
+
+function rimuoviVoce(){
+  if (!tastierino) return;
+  voci.delete(tastierino.chiave);
+  chiudiTastierino();
+  aggiornaTutteLeCard();
+  aggiornaBarra();
+}
+
+function chiudiTastierino(){
+  $('#veloTastierino').classList.add('nascosto');
+  tastierino = null;
+}
+
+/* ============================================================
+   Barra riepilogo e invio
+   ============================================================ */
+function aggiornaBarra(){
+  let tot = 0;
+  voci.forEach(v => tot += v.qta);
+  $('#barraTotale').textContent = fmt(tot) + ' t';
+  const n = voci.size;
+  const operatore = ls.get(K.operatore,'');
+  let dettaglio;
+  if (!n) dettaglio = 'nessuna voce inserita';
+  else if (!operatore) dettaglio = n + (n===1?' voce':' voci') + ' · manca l\'operatore';
+  else dettaglio = n + (n===1?' voce':' voci') + ' · ' + operatore + ' · ' + (ls.get(K.turno,'') || turnoSuggerito());
+  $('#barraDettaglio').textContent = dettaglio;
+  $('#btnInvia').disabled = !(n > 0 && operatore);
+}
+
+function componiRapportino(){
+  const righe = [];
+  voci.forEach(v => righe.push({
+    tipo: v.tipo,
+    lotto_id: v.tipo === 'LOTTO' ? v.id : '',
+    prodotto_id: v.prodotto_id,
+    quantita: v.qta,
+    note: ''
+  }));
+  return {
+    action:'submit',
+    id: uuid(),
+    data: $('#inData').value || oggi(),
+    turno: ls.get(K.turno,'') || turnoSuggerito(),
+    impianto: ls.get(K.impianto,''),
+    operatore: ls.get(K.operatore,''),
+    device: ls.get(K.device,''),
+    note: '',
+    righe
+  };
+}
+
+async function invia(){
+  if (DEMO){
+    mostraEsito(true, 'Rapportino simulato', 'Sei in modalità dimostrativa: nulla è stato salvato. Configura l\'indirizzo del servizio per registrare davvero i dati.');
+    resetRapportino();
+    return;
+  }
+  const btn = $('#btnInvia');
+  btn.disabled = true; btn.textContent = 'Invio…';
+  const payload = componiRapportino();
+  try{
+    const esito = await spedisci(payload);
+    if (!esito.ok) throw new Error(esito.errore || 'errore dal servizio');
+    mostraEsito(true, 'Rapportino registrato',
+      esito.righe + (esito.righe===1?' voce':' voci') + ' per un totale di ' + fmt(esito.totale) + ' t.');
+    resetRapportino();
+  }catch(err){
+    accodaRapportino(payload);
+    mostraEsito(true, 'Salvato sul tablet',
+      'Non sono riuscito a contattare il servizio, quindi il rapportino è in coda e verrà inviato da solo appena torna la linea. Non ricompilarlo.');
+    resetRapportino();
+  }finally{
+    btn.textContent = 'Invia';
+    aggiornaBarra();
+  }
+}
+
+async function spedisci(payload){
+  const r = await fetch(apiUrl(), {
+    method:'POST',
+    redirect:'follow',
+    headers:{ 'Content-Type':'text/plain;charset=utf-8' },   // evita il preflight CORS
+    body: JSON.stringify(payload)
+  });
+  return await r.json();
+}
+
+function resetRapportino(){
+  voci.clear();
+  aggiornaTutteLeCard();
+  aggiornaBarra();
+}
+
+function mostraEsito(ok, titolo, testo){
+  $('#velaEsito').classList.remove('nascosto');
+  $('#velaEsito').classList.toggle('errore', !ok);
+  $('#esitoSegno').textContent = ok ? '✓' : '!';
+  $('#esitoTitolo').textContent = titolo;
+  $('#esitoTesto').textContent = testo || '';
+}
+
+/* ============================================================
+   Coda di invio (resilienza alla linea che cade)
+   ============================================================ */
+function accodaRapportino(p){
+  const c = ls.get(K.coda,[]);
+  c.push(p); ls.set(K.coda,c); aggiornaCoda();
+}
+
+async function svuotaCoda(){
+  const c = ls.get(K.coda,[]);
+  if (!c.length || !apiUrl() || DEMO) return;
+  const rimasti = [];
+  for (const p of c){
+    try{
+      const e = await spedisci(p);
+      if (!e.ok) rimasti.push(p);
+    }catch(err){ rimasti.push(p); }
+  }
+  ls.set(K.coda, rimasti);
+  aggiornaCoda(); mostraStatoTecnico();
+}
+
+function aggiornaCoda(){
+  const n = ls.get(K.coda,[]).length;
+  const p = $('#hCoda');
+  p.classList.toggle('nascosto', n === 0);
+  p.classList.add('warn');
+  p.textContent = n + (n===1 ? ' rapportino in attesa' : ' rapportini in attesa');
+}
+
+/* ============================================================
+   Impostazioni
+   ============================================================ */
+function apriImpostazioni(){
+  $('#vistaPrincipale').classList.add('nascosto');
+  $('#vistaImpostazioni').classList.remove('nascosto');
+  $('#barra').classList.add('nascosto');
+  $('#inApi').value = ls.get(K.api,'');
+  $('#inDevice').value = ls.get(K.device,'');
+  riempiSelectImpianti((CONFIG && CONFIG.impianti) || []);
+  mostraStatoTecnico();
+}
+
+function chiudiImpostazioni(){
+  $('#vistaImpostazioni').classList.add('nascosto');
+  $('#vistaPrincipale').classList.remove('nascosto');
+  $('#barra').classList.remove('nascosto');
+}
+
+async function salvaImpostazioni(){
+  const api = $('#inApi').value.trim();
+  ls.set(K.api, api);
+  ls.set(K.device, $('#inDevice').value.trim());
+  const sceltaImp = $('#inImpianto').value;
+  if (sceltaImp) ls.set(K.impianto, sceltaImp);
+  if (!api){ esitoImpostazioni('Inserisci l\'indirizzo del servizio.', false); return; }
+  esitoImpostazioni('Verifico il collegamento…', true);
+  await scaricaConfig({});
+}
+
+function esitoImpostazioni(testo, ok){
+  const n = $('#esitoImpostazioni');
+  n.textContent = testo;
+  n.style.color = ok ? 'var(--verde)' : 'var(--rosso)';
+}
+
+function mostraStatoTecnico(){
+  const righe = [
+    'Servizio: ' + (apiUrl() || 'non configurato') + (window.RC_CONFIG && window.RC_CONFIG.api && window.RC_CONFIG.api.indexOf('INCOLLA') === -1 ? '  (da config.js)' : ''),
+    'Impianto: ' + (ls.get(K.impianto,'') || '—'),
+    'Tablet: ' + (ls.get(K.device,'') || '—'),
+    'Anagrafica in cache: ' + (CONFIG ? ((CONFIG.prodotti||[]).length + ' prodotti, ' + (CONFIG.lotti||[]).length + ' trincee aperte') : 'assente'),
+    'In coda: ' + ls.get(K.coda,[]).length + ' rapportini',
+    'Connessione: ' + (navigator.onLine ? 'presente' : 'assente')
+  ];
+  $('#statoTecnico').innerHTML = righe.map(r => '• ' + r).join('<br>');
+}
+
+function avviaDemo(){
+  DEMO = true;
+  CONFIG = CONFIG_DEMO;
+  ls.set(K.impianto,'IMP1');
+  applicaConfig(CONFIG_DEMO);
+  riempiSelectImpianti(CONFIG_DEMO.impianti);
+  esitoImpostazioni('Modalità dimostrativa attiva: i dati non vengono salvati da nessuna parte.', true);
+  chiudiImpostazioni();
+}
+</script>
+</body>
+</html>
