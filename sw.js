@@ -5,7 +5,7 @@
    avvio dopo un aggiornamento la vecchia cache viene buttata e il tablet
    riparte pulito. Se modifichi index.html ricordati di alzarlo. */
 
-const CACHE = 'rapportino-carichi-v4';
+const CACHE = 'rapportino-carichi-v5';
 const FILE = [
   './',
   './index.html',

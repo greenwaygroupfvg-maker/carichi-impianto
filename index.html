@@ -149,13 +149,42 @@
   /* ---------- Conferma / esito ---------- */
   .esito{
     position:fixed;inset:0;z-index:70;background:var(--verde);color:#fff;
-    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:30px;text-align:center
+    display:flex;overflow-y:auto;
+    padding:24px 20px calc(24px + env(safe-area-inset-bottom));text-align:center
+  }
+  .esito .dentro{
+    margin:auto;display:flex;flex-direction:column;align-items:center;gap:14px;
+    width:100%;max-width:520px
   }
   .esito.errore{background:var(--rosso)}
-  .esito .segno{font-size:78px;line-height:1}
-  .esito h3{font-size:28px;margin:0}
-  .esito p{margin:0;font-size:18px;opacity:.92;max-width:520px;white-space:pre-line}
-  .esito button{margin-top:10px;background:#fff;color:var(--verde-scuro);min-height:var(--tocco);padding:0 34px;border-radius:14px;font-size:19px;font-weight:800}
+  .esito .segno{font-size:64px;line-height:1}
+  .esito h3{font-size:27px;margin:0}
+  .esito p{margin:0;font-size:18px;opacity:.92;white-space:pre-line}
+  .esito button{margin-top:6px;background:#fff;color:var(--verde-scuro);min-height:var(--tocco);padding:0 34px;border-radius:14px;font-size:19px;font-weight:800}
+
+  /* Lo "scontrino": cosa è stato appena registrato, voce per voce. */
+  .scontrino{
+    background:#fff;color:var(--testo);border-radius:16px;
+    width:100%;text-align:left;padding:6px 16px 14px;
+    max-height:52vh;overflow-y:auto
+  }
+  .scontrino .capo{
+    font-size:14px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+    color:var(--testo-soft);padding:12px 0 10px;border-bottom:2px solid var(--bordo);
+    position:sticky;top:0;background:#fff
+  }
+  .scontrino .voce{
+    display:flex;align-items:baseline;justify-content:space-between;gap:14px;
+    padding:11px 0;border-bottom:1px solid var(--bordo)
+  }
+  .scontrino .voce .n{font-size:17px;font-weight:700;line-height:1.25}
+  .scontrino .voce .s{font-size:13px;color:var(--testo-soft);margin-top:2px}
+  .scontrino .voce .q{font-size:19px;font-weight:800;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .scontrino .tot{
+    display:flex;align-items:baseline;justify-content:space-between;gap:14px;
+    padding:13px 0 2px;font-size:21px;font-weight:800
+  }
+  .scontrino .tot .etichetta-tot{font-size:15px;font-weight:700;color:var(--testo-soft)}
 
   /* ---------- Impostazioni ---------- */
   .campo{margin-bottom:16px}
@@ -293,17 +322,20 @@
 
 <!-- ESITO -->
 <div class="esito nascosto" id="velaEsito">
-  <div class="segno" id="esitoSegno">✓</div>
-  <h3 id="esitoTitolo">Rapportino inviato</h3>
-  <p id="esitoTesto"></p>
-  <button id="esitoChiudi">Nuovo rapportino</button>
+  <div class="dentro">
+    <div class="segno" id="esitoSegno">✓</div>
+    <h3 id="esitoTitolo">Rapportino inviato</h3>
+    <p id="esitoTesto"></p>
+    <div class="scontrino nascosto" id="esitoScontrino"></div>
+    <button id="esitoChiudi">Nuovo rapportino</button>
+  </div>
 </div>
 
 <script src="config.js" onerror="window.RC_CONFIG=window.RC_CONFIG||{}"></script>
 <script>
 "use strict";
 
-const APP_VERSIONE = '2.0.0';
+const APP_VERSIONE = '2.2.0';
 
 /* ============================================================
    Stato e persistenza locale
@@ -850,28 +882,51 @@ function componiRapportino(){
   };
 }
 
+/* Fotografia di quello che l'operatore ha appena inserito, presa PRIMA di
+   svuotare il modulo: e' quella che gli rimostriamo nella schermata finale,
+   cosi' puo' rileggere riga per riga invece di fidarsi di un totale. Viene
+   dalle voci sullo schermo e non dalla risposta del servizio, cosi' funziona
+   identica anche quando il rapportino finisce in coda senza linea. */
+function fotografiaRapportino(payload){
+  const righe = [];
+  voci.forEach(v => righe.push({
+    nome: v.nome,
+    sotto: v.tipo === 'LOTTO' ? (v.sotto || '') : '',
+    qta: v.qta,
+    um: v.um || 't'
+  }));
+  return {
+    data: payload.data,
+    turno: payload.turno,
+    operatore: payload.operatore,
+    righe: righe,
+    totale: righe.reduce((s, r) => s + r.qta, 0)
+  };
+}
+
 async function invia(){
+  const btn = $('#btnInvia');
+  const payload = componiRapportino();
+  const foto = fotografiaRapportino(payload);
+
   if (DEMO){
-    mostraEsito(true, 'Rapportino simulato', 'Sei in modalità dimostrativa: nulla è stato salvato. Configura l\'indirizzo del servizio per registrare davvero i dati.');
+    mostraEsito(true, 'Rapportino simulato',
+      'Sei in modalità dimostrativa: nulla è stato salvato.', foto);
     resetRapportino();
     return;
   }
-  const btn = $('#btnInvia');
   btn.disabled = true; btn.textContent = 'Invio…';
-  const payload = componiRapportino();
   try{
     const esito = await spedisci(payload);
     if (esito && esito.ok){
-      mostraEsito(true, 'Rapportino registrato',
-        esito.righe + (esito.righe===1?' voce':' voci') + ' per un totale di ' + fmt(esito.totale) + ' t.' +
-        (esito.avviso ? '\n\n' + esito.avviso : ''));
+      mostraEsito(true, 'Rapportino registrato', esito.avviso || '', foto);
       resetRapportino();
     } else if (esito && esito.token){
       // Problema di configurazione, non di contenuto: il rapportino e' buono
       // e verra' accettato appena il token torna valido. Va messo in coda.
       accodaRapportino(payload);
       mostraEsito(false, 'Tablet non riconosciuto',
-        'Il servizio rifiuta il token di questo tablet. Il rapportino è salvato qui e riparte da solo appena il token viene sistemato: non ricompilarlo.\n\nAvvisa l\'ufficio.');
+        'Il rapportino è salvato qui e riparte da solo appena il problema viene sistemato: non ricompilarlo.\n\nAvvisa l\'ufficio.', foto);
       resetRapportino();
     } else {
       // Rifiuto nel merito: rimetterlo in coda non servirebbe a niente,
@@ -884,10 +939,10 @@ async function invia(){
     accodaRapportino(payload);
     if (navigator.onLine){
       mostraEsito(false, 'Servizio non raggiungibile',
-        'Il collegamento a internet c\'è, ma il servizio non risponde: quasi sempre è l\'indirizzo configurato che non è più valido, oppure la distribuzione Apps Script non è impostata su "Chiunque". Il rapportino è comunque salvato qui e riparte da solo quando il servizio torna: non ricompilarlo. Controlla lo Stato nell\'ingranaggio in alto a destra.');
+        'Il rapportino è salvato qui e riparte da solo quando il servizio torna: non ricompilarlo. Avvisa l\'ufficio.', foto);
     } else {
       mostraEsito(true, 'Salvato sul tablet',
-        'Sei senza linea, quindi il rapportino è in coda e verrà inviato da solo appena torna il segnale. Non ricompilarlo.');
+        'Sei senza linea: il rapportino parte da solo appena torna il segnale. Non ricompilarlo.', foto);
     }
     resetRapportino();
   }finally{
@@ -912,12 +967,47 @@ function resetRapportino(){
   aggiornaBarra();
 }
 
-function mostraEsito(ok, titolo, testo){
+function mostraEsito(ok, titolo, testo, foto){
   $('#velaEsito').classList.remove('nascosto');
   $('#velaEsito').classList.toggle('errore', !ok);
   $('#esitoSegno').textContent = ok ? '✓' : '!';
   $('#esitoTitolo').textContent = titolo;
   $('#esitoTesto').textContent = testo || '';
+  $('#esitoTesto').classList.toggle('nascosto', !testo);
+  disegnaScontrino(foto || null);
+  $('#velaEsito').scrollTop = 0;
+}
+
+function dataItaliana(iso){
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+  return m ? (m[3] + '/' + m[2] + '/' + m[1]) : String(iso || '');
+}
+
+function disegnaScontrino(foto){
+  const n = $('#esitoScontrino');
+  n.innerHTML = '';
+  if (!foto || !foto.righe.length){ n.classList.add('nascosto'); return; }
+
+  n.appendChild(el('div','capo',
+    dataItaliana(foto.data) + ' · ' + foto.turno + ' · ' + foto.operatore));
+
+  foto.righe.forEach(r => {
+    const riga = el('div','voce');
+    const sx = el('div');
+    sx.appendChild(el('div','n', r.nome));
+    if (r.sotto) sx.appendChild(el('div','s', r.sotto));
+    riga.appendChild(sx);
+    riga.appendChild(el('div','q', fmt(r.qta) + ' ' + r.um));
+    n.appendChild(riga);
+  });
+
+  const tot = el('div','tot');
+  tot.appendChild(el('span','etichetta-tot',
+    foto.righe.length + (foto.righe.length === 1 ? ' voce · totale' : ' voci · totale')));
+  tot.appendChild(el('span','', fmt(foto.totale) + ' t'));
+  n.appendChild(tot);
+
+  n.classList.remove('nascosto');
 }
 
 /* ============================================================
