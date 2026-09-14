@@ -1,7 +1,11 @@
 /* Service worker: tiene l'app avviabile anche senza linea.
-   I dati (anagrafica e coda di invio) stanno in localStorage, non qui. */
+   I dati (anagrafica, coda di invio, token) stanno in localStorage, non qui.
 
-const CACHE = 'rapportino-carichi-v2';
+   Il nome della cache porta il numero di versione: cambiandolo, al primo
+   avvio dopo un aggiornamento la vecchia cache viene buttata e il tablet
+   riparte pulito. Se modifichi index.html ricordati di alzarlo. */
+
+const CACHE = 'rapportino-carichi-v3';
 const FILE = [
   './',
   './index.html',

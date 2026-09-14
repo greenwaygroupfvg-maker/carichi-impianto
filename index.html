@@ -166,6 +166,7 @@
   }
   .campo .aiuto{font-size:13px;color:var(--testo-soft);margin-top:6px}
   .avviso{background:#fff8e6;border:1px solid #e6cf8a;border-radius:12px;padding:12px 14px;font-size:15px;margin-bottom:16px}
+  .avviso.grave{background:#fdeceb;border-color:#e8b4b0;color:#7d1c17}
   .vuoto{text-align:center;color:var(--testo-soft);padding:40px 20px;font-size:17px}
 </style>
 </head>
@@ -183,6 +184,7 @@
 <main>
   <!-- SCHERMATA PRINCIPALE -->
   <section id="vistaPrincipale">
+    <div class="avviso grave nascosto" id="bannerScartati"></div>
     <div class="avviso nascosto" id="bannerServizio"></div>
     <div class="blocco">
       <div class="riga-testata">
@@ -218,9 +220,15 @@
       </div>
 
       <div class="campo">
+        <label for="inToken">Token di accesso</label>
+        <input id="inToken" type="text" placeholder="24 caratteri" autocomplete="off" spellcheck="false">
+        <div class="aiuto">Nel documento Google: menu <b>Rapportini → Mostra il token di accesso</b>. Senza token il servizio non risponde.</div>
+      </div>
+
+      <div class="campo">
         <label for="inImpianto">Impianto di questo tablet</label>
         <select id="inImpianto"><option value="">— prima salva l'indirizzo —</option></select>
-        <div class="aiuto">L'operatore vedrà soltanto prodotti e trincee di questo impianto.</div>
+        <div class="aiuto">Ogni impianto ha il suo documento Google e quindi il suo indirizzo e il suo token.</div>
       </div>
 
       <div class="campo">
@@ -241,8 +249,17 @@
       <p class="etichetta">Stato</p>
       <div id="statoTecnico" style="font-size:15px;color:var(--testo-soft);line-height:1.7"></div>
       <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn-secondario" id="btnRitenta">Riprova a inviare la coda</button>
         <button class="btn-secondario" id="btnSvuotaCoda">Svuota coda di invio</button>
         <button class="btn-secondario" id="btnChiudiImpostazioni">Torna al rapportino</button>
+      </div>
+    </div>
+
+    <div class="blocco nascosto" id="bloccoScartati">
+      <p class="etichetta">Rapportini non accettati</p>
+      <div id="elencoScartati" style="font-size:15px;color:var(--testo-soft);line-height:1.7"></div>
+      <div style="margin-top:12px">
+        <button class="btn-secondario" id="btnDimenticaScartati">Ho preso nota, togli l'avviso</button>
       </div>
     </div>
   </section>
@@ -286,13 +303,51 @@
 <script>
 "use strict";
 
+const APP_VERSIONE = '2.0.0';
+
 /* ============================================================
    Stato e persistenza locale
+   ------------------------------------------------------------
+   Le chiavi di memoria sono intestate all'impianto (rc.SDB.coda, non
+   rc.coda). Oggi ogni tablet serve un impianto solo e non cambierebbe
+   nulla, ma se un domani lo stesso dispositivo dovesse servirne due,
+   le due installazioni condividerebbero l'origine del sito e quindi la
+   stessa memoria: senza prefisso si sovrascriverebbero a vicenda coda,
+   anagrafica e ultimo operatore. Costa una riga adesso, eviterebbe una
+   perdita di dati difficile da capire dopo.
    ============================================================ */
-const K = {
-  api:'rc.api', impianto:'rc.impianto', device:'rc.device',
-  config:'rc.config', coda:'rc.coda', operatore:'rc.operatore', turno:'rc.turno'
-};
+const K_ULTIMO_IMPIANTO = 'rc.ultimo_impianto';   // globale: chi usa questo dispositivo
+
+let IMPIANTO = '';
+let K = {};
+
+function impostaChiavi(imp){
+  IMPIANTO = String(imp || '');
+  const p = 'rc.' + (IMPIANTO || '-') + '.';
+  K = {
+    api:       p + 'api',
+    token:     p + 'token',
+    device:    p + 'device',
+    config:    p + 'config',
+    coda:      p + 'coda',
+    scartati:  p + 'scartati',
+    operatore: p + 'operatore',
+    turno:     p + 'turno'
+  };
+}
+
+/* Cambiare impianto significa cambiare quaderno: si portano dietro
+   indirizzo e token, perche' chi lo sta facendo li ha appena inseriti. */
+function cambiaImpianto(nuovo){
+  if (!nuovo || nuovo === IMPIANTO) return;
+  const api = ls.get(K.api, ''), token = ls.get(K.token, ''), device = ls.get(K.device, '');
+  impostaChiavi(nuovo);
+  try{ localStorage.setItem(K_ULTIMO_IMPIANTO, JSON.stringify(nuovo)); }catch(e){}
+  if (api && !ls.get(K.api,'')) ls.set(K.api, api);
+  if (token && !ls.get(K.token,'')) ls.set(K.token, token);
+  if (device && !ls.get(K.device,'')) ls.set(K.device, device);
+}
+
 const ls = {
   get(k, def){ try{ const v = localStorage.getItem(k); return v===null ? def : JSON.parse(v); }catch(e){ return def; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} },
@@ -301,15 +356,16 @@ const ls = {
 
 const TURNI = ['Mattina','Pomeriggio'];
 
-let CONFIG = null;          // { impianti, operatori, prodotti, lotti }
+let CONFIG = null;             // { impianti, operatori, prodotti, lotti }
+let VERSIONE_BACKEND = '';     // riempita a ogni lettura riuscita dell'anagrafica
 let DEMO = false;
-let SBLOCCATO = false;      // impostazioni rese visibili con la pressione lunga
-const voci = new Map();     // chiave -> { tipo, id, prodotto_id, nome, sotto, um, qta }
-let tastierino = null;      // { chiave, valore, esistente }
+let SBLOCCATO = false;         // impostazioni rese visibili con la pressione lunga
+const voci = new Map();        // chiave -> { tipo, id, prodotto_id, nome, sotto, um, qta }
+let tastierino = null;         // { chiave, valore, esistente }
 
 /* Anagrafica demo, per vedere l'app funzionare senza backend */
 const CONFIG_DEMO = {
-  impianti:[{id:'IMP1',nome:'Impianto dimostrativo'}],
+  impianti:[{id:'DEMO',nome:'Impianto dimostrativo'}],
   operatori:[{id:'OP1',nome:'Mario'},{id:'OP2',nome:'Luca'},{id:'OP3',nome:'Giuseppe'}],
   prodotti:[
     {id:'INS-MAIS',nome:'Insilato di mais',categoria:'Insilati',um:'t',ha_lotto:true,ordine:10},
@@ -321,11 +377,7 @@ const CONFIG_DEMO = {
     {id:'POLPE-BIET',nome:'Polpe di bietola',categoria:'Sottoprodotti',um:'t',ha_lotto:false,ordine:220},
     {id:'FAR-CER',nome:'Farina di cereale',categoria:'Sottoprodotti',um:'t',ha_lotto:false,ordine:250}
   ],
-  lotti:[
-    {id:'L-001',prodotto_id:'INS-MAIS',prodotto:'Insilato di mais',categoria:'Insilati',um:'t',trincea:'Trincea 1',anno:'2025',qta_max_attesa:60},
-    {id:'L-002',prodotto_id:'INS-TRIT',prodotto:'Insilato di triticale',categoria:'Insilati',um:'t',trincea:'Trincea 2',anno:'2026',qta_max_attesa:60},
-    {id:'L-006',prodotto_id:'INS-MAIS',prodotto:'Insilato di mais',categoria:'Insilati',um:'t',trincea:'Trincea 5',anno:'2026',qta_max_attesa:60}
-  ]
+  lotti:[]
 };
 
 /* ============================================================
@@ -349,6 +401,12 @@ function fmt(n){
 function turnoSuggerito(){
   return new Date().getHours() < 13 ? 'Mattina' : 'Pomeriggio';
 }
+function quandoLeggibile(iso){
+  try{
+    const d = new Date(iso), p = n => String(n).padStart(2,'0');
+    return p(d.getDate()) + '/' + p(d.getMonth()+1) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }catch(e){ return ''; }
+}
 
 /* ============================================================
    Avvio
@@ -356,16 +414,24 @@ function turnoSuggerito(){
 document.addEventListener('DOMContentLoaded', avvia);
 
 function avvia(){
+  // L'impianto va deciso per primo: da lui dipendono tutte le chiavi di memoria.
+  const q = new URLSearchParams(location.search);
+  let impPartenza = q.get('impianto') || '';
+  if (!impPartenza){
+    try{ impPartenza = JSON.parse(localStorage.getItem(K_ULTIMO_IMPIANTO) || '""'); }catch(e){ impPartenza = ''; }
+  }
+  impostaChiavi(impPartenza);
+  if (impPartenza){ try{ localStorage.setItem(K_ULTIMO_IMPIANTO, JSON.stringify(impPartenza)); }catch(e){} }
+
   $('#inData').value = oggi();
   costruisciTastierino();
   collegaEventi();
 
-  // Provisioning da URL: ?impianto=IMP1  (ed eventualmente &api=…&device=…)
-  // E' cosi' che ogni impianto ha il suo link: stessa app, impianto diverso.
-  const q = new URLSearchParams(location.search);
-  if (q.get('api'))      ls.set(K.api, q.get('api'));
-  if (q.get('impianto')) ls.set(K.impianto, q.get('impianto'));
-  if (q.get('device'))   ls.set(K.device, q.get('device'));
+  // Provisioning da URL: ?api=…&impianto=…&k=…&device=…
+  // E' cosi' che ogni impianto ha il suo link: stessa app, backend diverso.
+  if (q.get('api'))    ls.set(K.api, q.get('api'));
+  if (q.get('k'))      ls.set(K.token, q.get('k'));
+  if (q.get('device')) ls.set(K.device, q.get('device'));
   if (q.get('impostazioni') === '1') SBLOCCATO = true;
 
   const api = apiUrl();
@@ -381,6 +447,7 @@ function avvia(){
 
   aggiornaAccessoImpostazioni();
   aggiornaCoda();
+  mostraAvvisoScartati();
   setInterval(svuotaCoda, 60000);
   window.addEventListener('online', svuotaCoda);
   svuotaCoda();
@@ -395,7 +462,7 @@ function avvia(){
    Si riapre tenendo premuto due secondi sul nome dell'impianto, oppure
    aggiungendo ?impostazioni=1 all'indirizzo. */
 function aggiornaAccessoImpostazioni(){
-  const configurato = !!apiUrl() && !!ls.get(K.impianto,'');
+  const configurato = !!apiUrl() && !!IMPIANTO;
   $('#btnImpostazioni').classList.toggle('nascosto', configurato && !SBLOCCATO);
 }
 
@@ -408,9 +475,9 @@ function sbloccaImpostazioni(){
 function collegaPressioneLunga(){
   const zona = document.querySelector('header .titolo');
   let timer = null;
-  const avvia = () => { annulla(); timer = setTimeout(sbloccaImpostazioni, 2000); };
+  const parti = () => { annulla(); timer = setTimeout(sbloccaImpostazioni, 2000); };
   const annulla = () => { if (timer) { clearTimeout(timer); timer = null; } };
-  ['pointerdown'].forEach(ev => zona.addEventListener(ev, avvia));
+  ['pointerdown'].forEach(ev => zona.addEventListener(ev, parti));
   ['pointerup','pointerleave','pointercancel'].forEach(ev => zona.addEventListener(ev, annulla));
   zona.addEventListener('contextmenu', e => e.preventDefault());
 }
@@ -422,7 +489,9 @@ function collegaEventi(){
   $('#btnSalvaImpostazioni').addEventListener('click', salvaImpostazioni);
   $('#btnRicarica').addEventListener('click', ()=>scaricaConfig({}));
   $('#btnDemo').addEventListener('click', avviaDemo);
+  $('#btnRitenta').addEventListener('click', ()=>svuotaCoda());
   $('#btnSvuotaCoda').addEventListener('click', ()=>{ ls.set(K.coda,[]); aggiornaCoda(); mostraStatoTecnico(); });
+  $('#btnDimenticaScartati').addEventListener('click', ()=>{ ls.set(K.scartati,[]); mostraAvvisoScartati(); mostraStatoTecnico(); });
   $('#btnInvia').addEventListener('click', invia);
   $('#tsAnnulla').addEventListener('click', chiudiTastierino);
   $('#tsOk').addEventListener('click', confermaTastierino);
@@ -434,9 +503,9 @@ function collegaEventi(){
 /* ============================================================
    Configurazione
    ============================================================ */
-/* L'indirizzo del servizio puo' arrivare da config.js (uguale per tutti i
-   tablet, si configura una volta sola sul sito) oppure, in mancanza, dalle
-   impostazioni del singolo tablet. */
+/* L'indirizzo del servizio puo' arrivare da config.js (sconsigliato: il
+   repository e' pubblico) oppure dalle impostazioni del singolo tablet,
+   che e' il caso normale. */
 function apiUrl(){
   const c = (typeof window.RC_CONFIG === 'object' && window.RC_CONFIG) || {};
   const daFile = String(c.api || '').trim();
@@ -444,10 +513,24 @@ function apiUrl(){
   return ls.get(K.api,'');
 }
 
+function token(){ return ls.get(K.token,''); }
+
+function urlApi(extra){
+  const api = apiUrl();
+  if (!api) return '';
+  const q = [];
+  if (token()) q.push('k=' + encodeURIComponent(token()));
+  (extra || []).forEach(x => q.push(x));
+  if (!q.length) return api;
+  return api + (api.indexOf('?') === -1 ? '?' : '&') + q.join('&');
+}
+
 function urlConfig(){
-  const api = apiUrl(), imp = ls.get(K.impianto,'');
-  const sep = api.indexOf('?') === -1 ? '?' : '&';
-  return api + sep + 'action=config&impianto=' + encodeURIComponent(imp) + '&_=' + Date.now();
+  return urlApi([
+    'action=config',
+    'impianto=' + encodeURIComponent(IMPIANTO),
+    '_=' + Date.now()
+  ]);
 }
 
 async function scaricaConfig(opz){
@@ -458,8 +541,12 @@ async function scaricaConfig(opz){
   try{
     const r = await fetch(urlConfig(), { method:'GET', redirect:'follow' });
     const j = await r.json();
-    if (!j.ok) throw new Error(j.errore || 'risposta non valida');
+    if (!j.ok){
+      if (j.token) throw new Error('TOKEN:' + (j.errore || 'token non valido'));
+      throw new Error(j.errore || 'risposta non valida');
+    }
     DEMO = false;
+    VERSIONE_BACKEND = String(j.versione || '');
     ls.set(K.config, j.config);
     applicaConfig(j.config);
     riempiSelectImpianti(j.config.impianti);
@@ -467,17 +554,22 @@ async function scaricaConfig(opz){
     if (!opz.silenzioso) esitoImpostazioni('Collegamento riuscito: ' +
       j.config.prodotti.length + ' prodotti, ' + j.config.lotti.length + ' trincee aperte.', true);
   }catch(err){
+    const problemaToken = String(err.message || '').indexOf('TOKEN:') === 0;
     const cache = ls.get(K.config,null);
     if (cache) {
       applicaConfig(cache);
-      $('#hSotto').textContent = 'servizio non raggiungibile';
-      banner('⚠ Non riesco a contattare il servizio: quello che vedi qui sotto è l\'ultimo elenco scaricato e potrebbe non essere aggiornato. ' +
-             (navigator.onLine
-               ? 'La connessione c\'è, quindi il problema è nell\'indirizzo configurato o nella distribuzione Apps Script. Gli invii resteranno in coda.'
-               : 'Sei senza linea: appena torna il segnale si risistema da solo.'));
+      $('#hSotto').textContent = problemaToken ? 'token non valido' : 'servizio non raggiungibile';
+      banner(problemaToken
+        ? '⚠ Il servizio rifiuta questo tablet: il token non è più valido. Quello che vedi è l\'ultimo elenco scaricato. Gli invii restano in coda e ripartiranno da soli appena il token verrà sistemato.'
+        : '⚠ Non riesco a contattare il servizio: quello che vedi qui sotto è l\'ultimo elenco scaricato e potrebbe non essere aggiornato. ' +
+          (navigator.onLine
+            ? 'La connessione c\'è, quindi il problema è nell\'indirizzo configurato o nella distribuzione Apps Script. Gli invii resteranno in coda.'
+            : 'Sei senza linea: appena torna il segnale si risistema da solo.'));
     }
-    else { $('#hSotto').textContent = 'impossibile contattare il servizio'; }
-    if (!opz.silenzioso) esitoImpostazioni('Non riesco a contattare il servizio. Controlla che l\'URL finisca con /exec e che la distribuzione sia impostata su "Chiunque". Dettaglio: ' + err.message, false);
+    else { $('#hSotto').textContent = problemaToken ? 'token non valido' : 'impossibile contattare il servizio'; }
+    if (!opz.silenzioso) esitoImpostazioni(problemaToken
+      ? 'Il servizio risponde ma rifiuta il token. Aprilo dal documento Google (menu Rapportini → Mostra il token di accesso) e reincollalo qui sopra.'
+      : 'Non riesco a contattare il servizio. Controlla che l\'URL finisca con /exec e che la distribuzione sia impostata su "Chiunque". Dettaglio: ' + err.message, false);
   }
   mostraStatoTecnico();
 }
@@ -491,8 +583,7 @@ function banner(testo){
 
 function applicaConfig(cfg){
   CONFIG = cfg;
-  const impId = ls.get(K.impianto,'');
-  const imp = (cfg.impianti||[]).find(i => i.id === impId) || (cfg.impianti||[])[0];
+  const imp = (cfg.impianti||[]).find(i => i.id === IMPIANTO) || (cfg.impianti||[])[0];
   $('#hImpianto').textContent = imp ? imp.nome : 'Rapportino Carichi';
   $('#hSotto').textContent = DEMO ? 'modalità dimostrativa' : 'rapportino di carico';
   aggiornaAccessoImpostazioni();
@@ -503,12 +594,12 @@ function applicaConfig(cfg){
 }
 
 function riempiSelectImpianti(impianti){
-  const sel = $('#inImpianto'), corrente = ls.get(K.impianto,'');
+  const sel = $('#inImpianto');
   sel.innerHTML = '';
   (impianti||[]).forEach(i => {
     const o = document.createElement('option');
     o.value = i.id; o.textContent = i.nome + '  (' + i.id + ')';
-    if (i.id === corrente) o.selected = true;
+    if (i.id === IMPIANTO) o.selected = true;
     sel.appendChild(o);
   });
   if (!impianti || !impianti.length) sel.innerHTML = '<option value="">— nessun impianto trovato —</option>';
@@ -541,20 +632,28 @@ function disegnaOperatori(){
   });
 }
 
+/* Due modalita', decise dal DATO e non dal codice.
+   - Se c'e' almeno un lotto APERTO: in alto le trincee, sotto i soli
+     prodotti senza lotto. E' la modalita' completa.
+   - Se non c'e' nessun lotto aperto: tutte le biomasse attive diventano
+     riquadri semplici, ignorando ha_lotto. E' la modalita' semplificata.
+   Passare dall'una all'altra e' un cambio di stato nella scheda Lotti del
+   documento Google: niente da ripubblicare, niente link da rifare. */
 function disegnaVoci(){
   const box = $('#contenitoreVoci'); box.innerHTML = '';
   if (!CONFIG){ box.appendChild(el('div','vuoto','Configura il servizio dalle impostazioni ⚙')); return; }
 
   const lotti = CONFIG.lotti || [];
-  if (lotti.length){
+  const conTrincee = lotti.length > 0;
+
+  if (conTrincee){
     box.appendChild(intestazioneSezione('Trincee aperte'));
     const g = el('div','griglia');
     lotti.forEach(l => g.appendChild(cardLotto(l)));
     box.appendChild(g);
   }
 
-  // prodotti senza lotto, raggruppati per categoria
-  const semplici = (CONFIG.prodotti || []).filter(p => !p.ha_lotto);
+  const semplici = (CONFIG.prodotti || []).filter(p => conTrincee ? !p.ha_lotto : true);
   const categorie = [];
   semplici.forEach(p => { if (categorie.indexOf(p.categoria) === -1) categorie.push(p.categoria); });
   categorie.forEach(cat => {
@@ -564,7 +663,7 @@ function disegnaVoci(){
     box.appendChild(g);
   });
 
-  if (!lotti.length && !semplici.length){
+  if (!conTrincee && !semplici.length){
     box.appendChild(el('div','vuoto','Nessun prodotto disponibile per questo impianto.'));
   }
 }
@@ -576,9 +675,8 @@ function cardLotto(l){
   const b = el('button','card');
   const testa = el('div');
   testa.appendChild(el('span','badge', l.trincea));
-  const nome = el('div','nome', l.prodotto);
-  const sotto = el('div','sotto', 'raccolto ' + l.anno);
-  testa.appendChild(nome); testa.appendChild(sotto);
+  testa.appendChild(el('div','nome', l.prodotto));
+  testa.appendChild(el('div','sotto', 'raccolto ' + l.anno));
   b.appendChild(testa);
   b.appendChild(el('div','valore','—'));
   b.addEventListener('click', ()=> apriTastierino(chiave, {
@@ -619,7 +717,6 @@ function aggiornaCard(nodo, chiave){
 }
 
 function aggiornaTutteLeCard(){
-  // ridisegno solo i valori, senza ricostruire il DOM
   disegnaVoci();
 }
 
@@ -745,7 +842,7 @@ function componiRapportino(){
     id: uuid(),
     data: $('#inData').value || oggi(),
     turno: ls.get(K.turno,'') || turnoSuggerito(),
-    impianto: ls.get(K.impianto,''),
+    impianto: IMPIANTO,
     operatore: ls.get(K.operatore,''),
     device: ls.get(K.device,''),
     note: '',
@@ -766,11 +863,19 @@ async function invia(){
     const esito = await spedisci(payload);
     if (esito && esito.ok){
       mostraEsito(true, 'Rapportino registrato',
-        esito.righe + (esito.righe===1?' voce':' voci') + ' per un totale di ' + fmt(esito.totale) + ' t.');
+        esito.righe + (esito.righe===1?' voce':' voci') + ' per un totale di ' + fmt(esito.totale) + ' t.' +
+        (esito.avviso ? '\n\n' + esito.avviso : ''));
+      resetRapportino();
+    } else if (esito && esito.token){
+      // Problema di configurazione, non di contenuto: il rapportino e' buono
+      // e verra' accettato appena il token torna valido. Va messo in coda.
+      accodaRapportino(payload);
+      mostraEsito(false, 'Tablet non riconosciuto',
+        'Il servizio rifiuta il token di questo tablet. Il rapportino è salvato qui e riparte da solo appena il token viene sistemato: non ricompilarlo.\n\nAvvisa l\'ufficio.');
       resetRapportino();
     } else {
-      // Il servizio ha risposto ma ha rifiutato: rimetterlo in coda non
-      // servirebbe a niente, verrebbe rifiutato all'infinito.
+      // Rifiuto nel merito: rimetterlo in coda non servirebbe a niente,
+      // verrebbe rifiutato all'infinito.
       mostraEsito(false, 'Rapportino rifiutato dal servizio',
         (esito && esito.errore ? esito.errore : 'risposta non riconosciuta') +
         '\n\nIl rapportino è ancora sullo schermo: non l\'ho perso.');
@@ -792,7 +897,7 @@ async function invia(){
 }
 
 async function spedisci(payload){
-  const r = await fetch(apiUrl(), {
+  const r = await fetch(urlApi([]), {
     method:'POST',
     redirect:'follow',
     headers:{ 'Content-Type':'text/plain;charset=utf-8' },   // evita il preflight CORS
@@ -817,24 +922,54 @@ function mostraEsito(ok, titolo, testo){
 
 /* ============================================================
    Coda di invio (resilienza alla linea che cade)
+   ------------------------------------------------------------
+   Tre esiti possibili, e vanno trattati in tre modi diversi. Se il
+   servizio accetta, il rapportino esce dalla coda. Se il servizio non
+   risponde — linea giu', distribuzione ferma, token da sistemare — il
+   rapportino RESTA in coda e si ritenta. Se invece il servizio risponde
+   e rifiuta nel merito, ritentare non servira' mai a niente: il
+   rapportino esce dalla coda e finisce tra gli scartati, dove resta
+   leggibile invece di sparire in silenzio.
+   Nella v1 anche i rifiuti venivano rimessi in coda: il contatore "in
+   attesa" non scendeva piu' e l'operatore imparava a ignorarlo, che e'
+   il modo migliore per non accorgersi di quello vero.
    ============================================================ */
 function accodaRapportino(p){
   const c = ls.get(K.coda,[]);
   c.push(p); ls.set(K.coda,c); aggiornaCoda();
 }
 
+let codaInCorso = false;
+
 async function svuotaCoda(){
+  if (codaInCorso) return;
   const c = ls.get(K.coda,[]);
   if (!c.length || !apiUrl() || DEMO) return;
-  const rimasti = [];
-  for (const p of c){
-    try{
-      const e = await spedisci(p);
-      if (!e.ok) rimasti.push(p);
-    }catch(err){ rimasti.push(p); }
-  }
+  codaInCorso = true;
+  const rimasti = [], nuoviScartati = [];
+  try{
+    for (const p of c){
+      try{
+        const e = await spedisci(p);
+        if (e && e.ok) continue;                  // registrato, o duplicato gia' presente
+        if (e && e.token){ rimasti.push(p); continue; }   // configurazione: si ritenta
+        nuoviScartati.push({
+          quando: new Date().toISOString(),
+          errore: (e && e.errore) ? String(e.errore) : 'risposta non riconosciuta',
+          rapportino: p
+        });
+      }catch(err){ rimasti.push(p); }             // servizio irraggiungibile: si ritenta
+    }
+  } finally { codaInCorso = false; }
+
   ls.set(K.coda, rimasti);
-  aggiornaCoda(); mostraStatoTecnico();
+  if (nuoviScartati.length){
+    const s = ls.get(K.scartati,[]).concat(nuoviScartati);
+    ls.set(K.scartati, s.slice(-20));             // ne tengo al piu' 20, i piu' recenti
+  }
+  aggiornaCoda();
+  mostraAvvisoScartati();
+  mostraStatoTecnico();
 }
 
 function aggiornaCoda(){
@@ -845,6 +980,28 @@ function aggiornaCoda(){
   p.textContent = n + (n===1 ? ' rapportino in attesa' : ' rapportini in attesa');
 }
 
+function mostraAvvisoScartati(){
+  const s = ls.get(K.scartati,[]);
+  const n = $('#bannerScartati');
+  if (!s.length){
+    n.classList.add('nascosto');
+    $('#bloccoScartati').classList.add('nascosto');
+    return;
+  }
+  n.textContent = '⚠ ' + s.length + (s.length===1 ? ' rapportino non è stato accettato' : ' rapportini non sono stati accettati') +
+    ' dal servizio e non verrà ripetuto l\'invio. Avvisa l\'ufficio: il dettaglio è nelle impostazioni, sotto "Rapportini non accettati".';
+  n.classList.remove('nascosto');
+
+  $('#bloccoScartati').classList.remove('nascosto');
+  $('#elencoScartati').innerHTML = s.slice().reverse().map(x => {
+    const r = x.rapportino || {};
+    const voci = (r.righe || []).length;
+    return '• <b>' + quandoLeggibile(x.quando) + '</b> — ' + (r.data || '?') + ' ' + (r.turno || '') +
+           ', ' + (r.operatore || 'operatore ?') + ', ' + voci + (voci===1?' voce':' voci') +
+           '<br>&nbsp;&nbsp;motivo: ' + String(x.errore).replace(/[<>]/g,'');
+  }).join('<br>');
+}
+
 /* ============================================================
    Impostazioni
    ============================================================ */
@@ -853,8 +1010,10 @@ function apriImpostazioni(){
   $('#vistaImpostazioni').classList.remove('nascosto');
   $('#barra').classList.add('nascosto');
   $('#inApi').value = ls.get(K.api,'');
+  $('#inToken').value = ls.get(K.token,'');
   $('#inDevice').value = ls.get(K.device,'');
   riempiSelectImpianti((CONFIG && CONFIG.impianti) || []);
+  mostraAvvisoScartati();
   mostraStatoTecnico();
 }
 
@@ -868,11 +1027,18 @@ function chiudiImpostazioni(){
 
 async function salvaImpostazioni(){
   const api = $('#inApi').value.trim();
-  ls.set(K.api, api);
-  ls.set(K.device, $('#inDevice').value.trim());
+  const tok = $('#inToken').value.trim();
+  const dev = $('#inDevice').value.trim();
   const sceltaImp = $('#inImpianto').value;
-  if (sceltaImp) ls.set(K.impianto, sceltaImp);
+
+  if (sceltaImp && sceltaImp !== IMPIANTO) cambiaImpianto(sceltaImp);
+
+  ls.set(K.api, api);
+  ls.set(K.token, tok);
+  ls.set(K.device, dev);
+
   if (!api){ esitoImpostazioni('Inserisci l\'indirizzo del servizio.', false); return; }
+  if (!tok){ esitoImpostazioni('Inserisci il token: senza, il servizio non risponde.', false); return; }
   esitoImpostazioni('Verifico il collegamento…', true);
   await scaricaConfig({});
 }
@@ -884,21 +1050,27 @@ function esitoImpostazioni(testo, ok){
 }
 
 function mostraStatoTecnico(){
+  const t = ls.get(K.token,'');
   const righe = [
-    'Servizio: ' + (apiUrl() || 'non configurato') + (window.RC_CONFIG && window.RC_CONFIG.api && window.RC_CONFIG.api.indexOf('INCOLLA') === -1 ? '  (da config.js)' : ''),
-    'Impianto: ' + (ls.get(K.impianto,'') || '—'),
+    'App: v' + APP_VERSIONE + (VERSIONE_BACKEND ? '  ·  servizio: v' + VERSIONE_BACKEND : '  ·  servizio: mai contattato'),
+    'Servizio: ' + (apiUrl() || 'non configurato'),
+    'Token: ' + (t ? t.slice(0,4) + '…' + t.slice(-4) + ' (' + t.length + ' caratteri)' : 'non impostato'),
+    'Impianto: ' + (IMPIANTO || '—'),
     'Tablet: ' + (ls.get(K.device,'') || '—'),
     'Anagrafica in cache: ' + (CONFIG ? ((CONFIG.prodotti||[]).length + ' prodotti, ' + (CONFIG.lotti||[]).length + ' trincee aperte') : 'assente'),
+    'Modalità: ' + (CONFIG && (CONFIG.lotti||[]).length ? 'con trincee' : 'semplificata (sola biomassa)'),
     'In coda: ' + ls.get(K.coda,[]).length + ' rapportini',
+    'Non accettati: ' + ls.get(K.scartati,[]).length,
     'Connessione: ' + (navigator.onLine ? 'presente' : 'assente')
   ];
   $('#statoTecnico').innerHTML = righe.map(r => '• ' + r).join('<br>');
 }
 
+/* La modalità demo non tocca le chiavi di memoria dell'impianto reale:
+   serve a far vedere l'app, non a configurarla. */
 function avviaDemo(){
   DEMO = true;
   CONFIG = CONFIG_DEMO;
-  ls.set(K.impianto,'IMP1');
   applicaConfig(CONFIG_DEMO);
   riempiSelectImpianti(CONFIG_DEMO.impianti);
   esitoImpostazioni('Modalità dimostrativa attiva: i dati non vengono salvati da nessuna parte.', true);
